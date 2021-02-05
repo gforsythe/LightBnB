@@ -17,10 +17,12 @@ const pool = new Pool({
  * @return {Promise<{}>} A promise to the user.
  */
 const getUserWithEmail = function(email) {
-  return pool.query(`
+  const queryString = `
   SELECT * 
   FROM users 
-  WHERE email = $1`, [email])
+  WHERE email = $1`;
+  const param = [email];
+  return pool.query(queryString, param )
   .then(res => res.rows[0])
   .catch(err => console.error('query error', err.stack)
   )};
@@ -33,10 +35,12 @@ exports.getUserWithEmail = getUserWithEmail;
  * @return {Promise<{}>} A promise to the user.
  */
 const getUserWithId = function(id) {
-  return pool.query(`
+  const queryString = `
   SELECT * 
   FROM users 
-  WHERE id = $1`, [id])
+  WHERE id = $1`;
+  const param = [id];
+  return pool.query(queryString, param )
   .then(res => res.rows[0])
   .catch(err => console.error('query error', err.stack)
   )}
@@ -49,10 +53,11 @@ exports.getUserWithId = getUserWithId;
  * @return {Promise<{}>} A promise to the user.
  */
 const addUser =  function(user) {
-  
-  return pool.query(`
+  const queryString = `
   INSERT INTO users (name, email, password)
-  VALUES ($1, $2, $3) RETURNING *;`, [user.name,user.email, user.password])
+  VALUES ($1, $2, $3) RETURNING *;`;
+  const params = [user.name,user.email, user.password]
+  return pool.query(queryString, params )
   .then(res => res.rows[0])
   .catch(err => console.error('query error', err.stack)
   )}
@@ -66,8 +71,8 @@ exports.addUser = addUser;
  * @return {Promise<[{}]>} A promise to the reservations.
  */
 const getAllReservations = function(guest_id, limit = 10) {
-  const params = [limit, guest_id]
-  return pool.query(`
+  const params = [limit, guest_id];
+  const queryString = `
   SELECT properties.*, reservations.*, avg(rating) as average_rating
   FROM reservations
   JOIN properties ON reservations.property_id = properties.id
@@ -76,7 +81,8 @@ const getAllReservations = function(guest_id, limit = 10) {
   AND reservations.end_date < now()::date
   GROUP BY properties.id, reservations.id
   ORDER BY reservations.start_date
-  LIMIT $2;`, params)
+  LIMIT $2;`;
+  return pool.query(queryString, params)
   .then(res => res.rows);;
 }
 exports.getAllReservations = getAllReservations;
@@ -90,11 +96,59 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function(options, limit = 10) {
-  return pool.query(`
-  SELECT * FROM properties
-  LIMIT $1
-  `, [limit])
-  .then(res => res.rows);
+  const queryParams = [];
+  // 2
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
+
+  // 3
+  if (options.city) {
+  queryString += queryParams.length > 0 ? `AND` : `WHERE`;
+  queryParams.push(`%${options.city}%`);// $1
+  queryString +=` city ILIKE $${queryParams.length} `
+}
+
+  if (options.owner_id) {
+    queryString += queryParams.length > 0 ? `AND` : `WHERE`;
+    queryParams.push(options.owner_id);  //$2
+    queryString += ` owner_id = $${queryParams.length} `;
+  } 
+  
+  if (options.minimum_price_per_night ) {
+    queryString += queryParams.length > 0 ? `AND` : `WHERE`;
+    queryParams.push(options.minimum_price_per_night);//$3
+    queryString += ` cost_per_night >= $${queryParams.length} `
+  }
+
+  if(options.maximum_price_per_night) {
+  queryString += queryParams.length > 0 ? `AND` : `WHERE`;
+  queryParams.push(options.maximum_price_per_night);//$4
+  queryString += ` cost_per_night <= $${queryParams.length} `
+  }
+  
+  queryString += `
+  GROUP BY properties.id`
+  
+  
+  if (options.minimum_rating) { 
+    queryParams.push(options.minimum_rating);//$5
+    queryString += ` HAVING avg(property_reviews.rating) >= $${queryParams.length} `
+  }
+  
+  // 4
+  queryParams.push(limit);
+  queryString += ` ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+  // 5
+  console.log(queryString, queryParams);
+  // 6
+  return pool.query(queryString, queryParams)
+  .then(res => res.rows)
+  .catch(err => console.error(err.message))
 }
 exports.getAllProperties = getAllProperties;
 
